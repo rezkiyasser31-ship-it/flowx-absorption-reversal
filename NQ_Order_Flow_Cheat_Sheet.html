@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NQ Order Flow Absorption Cheat Sheet - TheFlowX</title>
+    <style>
+        :root {
+            --bg: #12151c;
+            --card-bg: #1b202c;
+            --card-border: #293144;
+            --text-main: #f0f3f8;
+            --text-dim: #9aa5b8;
+            --accent-green: #38d39f;
+            --accent-green-bg: rgba(56, 211, 159, 0.12);
+            --accent-red: #ff5c5c;
+            --accent-red-bg: rgba(255, 92, 92, 0.12);
+            --accent-gold: #ffb703;
+            --accent-cyan: #00d2ff;
+            --accent-blue: #4d96ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding: 24px;
+            line-height: 1.5;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--card-border);
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tag {
+            background: #2a3449;
+            color: var(--accent-cyan);
+            font-size: 13px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+            text-transform: uppercase;
+        }
+
+        .print-btn {
+            background: #293347;
+            color: #fff;
+            border: 1px solid var(--card-border);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .print-btn:hover {
+            background: #3a4763;
+        }
+
+        /* 3 Core Rules Banner */
+        .golden-rule {
+            background: linear-gradient(135deg, #1f2738 0%, #171d2b 100%);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .golden-title {
+            color: var(--accent-cyan);
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .rule-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .rule-item {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 12px 14px;
+            border-radius: 8px;
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        .rule-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+        }
+
+        .rule-desc {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        /* Strategy Setups Grid */
+        .setups-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 700;
+            font-size: 16px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .card-short .card-header {
+            background: var(--accent-red-bg);
+            color: var(--accent-red);
+            border-bottom-color: rgba(255, 92, 92, 0.2);
+        }
+
+        .card-long .card-header {
+            background: var(--accent-green-bg);
+            color: var(--accent-green);
+            border-bottom-color: rgba(56, 211, 159, 0.2);
+        }
+
+        .card-body {
+            padding: 16px 18px;
+        }
+
+        .step-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .step-row {
+            display: flex;
+            gap: 12px;
+            font-size: 13.5px;
+        }
+
+        .step-num {
+            flex-shrink: 0;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #2a3347;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            margin-top: 1px;
+        }
+
+        .step-title {
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .highlight-red {
+            color: var(--accent-red);
+            font-weight: 600;
+        }
+
+        .highlight-green {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .highlight-gold {
+            color: var(--accent-gold);
+            font-weight: 600;
+        }
+
+        /* Trade Execution Bar */
+        .exec-bar {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--card-border);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+        }
+
+        .exec-badge {
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-right: 6px;
+        }
+
+        .badge-stop {
+            background: rgba(255, 92, 92, 0.2);
+            color: var(--accent-red);
+        }
+
+        .badge-target {
+            background: rgba(255, 183, 3, 0.2);
+            color: var(--accent-gold);
+        }
+
+        /* Checklist & Rules Bottom Grid */
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 20px;
+        }
+
+        /* Checklist */
+        .checklist-box {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 16px 20px;
+        }
+
+        .checklist-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent-gold);
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 13.5px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .check-item:last-child {
+            border-bottom: none;
+        }
+
+        .check-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent-green);
+            cursor: pointer;
+        }
+
+        /* Red Flags Box */
+        .flags-box {
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 92, 92, 0.3);
+            border-radius: 10px;
+            padding: 16px 20px;
+        }
+
+        .flags-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            color: var(--accent-red);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .flag-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #d1d8e6;
+        }
+
+        .flag-icon {
+            color: var(--accent-red);
+            font-weight: 800;
+        }
+
+        /* Settings Table */
+        .settings-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+            margin-top: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .settings-table th, .settings-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .settings-table th {
+            background: #1f2636;
+            color: var(--text-dim);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+        }
+
+        @media (max-width: 900px) {
+            .rule-grid, .setups-container, .bottom-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media print {
+            body {
+                background: #fff;
+                color: #000;
+                padding: 10px;
+            }
+            .print-btn {
+                display: none;
+            }
+            .card, .checklist-box, .flags-box, .golden-rule, .settings-table {
+                background: #fff;
+                color: #000;
+                border: 1px solid #ccc;
+            }
+            .step-title, .rule-desc, .golden-title {
+                color: #000;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <h1>NQ Order Flow Absorption Cheat Sheet</h1>
+            <div style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
+                NinjaTrader 8 &bull; FlowX BigTrade + VWAP + CVD &bull; Intraday Reversals
+            </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <span class="tag">NQ Futures</span>
+            <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
+        </div>
+    </div>
+
+    <!-- The 3 Core Pillars -->
+    <div class="golden-rule">
+        <div class="golden-title">⚡ The 3 Pillars of Every Valid Trade (Must Agree)</div>
+        <div class="rule-grid">
+            <div class="rule-item">
+                <div class="rule-label">1. Location (Context)</div>
+                <div class="rule-desc">Price tests the <span style="color: var(--accent-cyan);">±2.0σ VWAP Band</span> (Statistically extended).</div>
+            </div>
+            <div class="rule-item">
+                <div class="rule-label">2. Aggression (The Trap)</div>
+                <div class="rule-desc">A <span style="color: var(--accent-gold);">BigTrade Bubble (≥75 lots)</span> prints on the extreme wick.</div>
+            </div>
+            <div class="rule-item">
+                <div class="rule-label">3. Proof (Absorption)</div>
+                <div class="rule-desc">Price fails to advance & <span style="color: var(--accent-green);">CVD shows divergence/stall</span>.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setups Grid -->
+    <div class="setups-container">
+
+        <!-- Short Setup -->
+        <div class="card card-short">
+            <div class="card-header">
+                <span>🔴 Bearish Absorption (Short Setup)</span>
+                <span style="font-size: 12px; font-weight: normal; opacity: 0.9;">Fade the Highs</span>
+            </div>
+            <div class="card-body">
+                <ul class="step-list">
+                    <li class="step-row">
+                        <div class="step-num">1</div>
+                        <div>
+                            <span class="step-title">Location:</span> Price stretches up and touches the <span class="highlight-red">+2.0σ VWAP Band</span> (Upper Band).
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">2</div>
+                        <div>
+                            <span class="step-title">Institutional Print:</span> A <span class="highlight-green">Green Buy Bubble (≥75)</span> prints at or near the top wick (buyers hitting Ask).
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">3</div>
+                        <div>
+                            <span class="step-title">Absorption:</span> Price <strong>fails to expand higher</strong>. Candle leaves an upper rejection wick.
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">4</div>
+                        <div>
+                            <span class="step-title">CVD Check:</span> Sub-panel <strong>TheflowX_cvd</strong> makes a <strong>Lower High</strong> (Divergence) or goes flat.
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">5</div>
+                        <div>
+                            <span class="step-title">Entry:</span> Enter <strong>Market Short</strong> on rejection candle close (or Sell Stop 1 tick under candle low).
+                        </div>
+                    </li>
+                </ul>
+
+                <div class="exec-bar">
+                    <div><span class="exec-badge badge-stop">STOP LOSS</span> 1 to 2 points (4–8 ticks) above the high wick.</div>
+                    <div><span class="exec-badge badge-target">TARGET 1</span> Close 50% at <span class="highlight-gold">+1.0σ Band</span> & move stop to B/E (+1 tick).</div>
+                    <div><span class="exec-badge badge-target">TARGET 2</span> Close remaining 50% at <span class="highlight-gold">VWAP Midline (Orange Line)</span>.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Long Setup -->
+        <div class="card card-long">
+            <div class="card-header">
+                <span>🟢 Bullish Absorption (Long Setup)</span>
+                <span style="font-size: 12px; font-weight: normal; opacity: 0.9;">Fade the Lows</span>
+            </div>
+            <div class="card-body">
+                <ul class="step-list">
+                    <li class="step-row">
+                        <div class="step-num">1</div>
+                        <div>
+                            <span class="step-title">Location:</span> Price dumps into and tests the <span class="highlight-green">-2.0σ VWAP Band</span> (Lower Band).
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">2</div>
+                        <div>
+                            <span class="step-title">Institutional Print:</span> A <span class="highlight-red">Red Sell Bubble (≥75)</span> prints at or near the bottom wick (sellers hitting Bid).
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">3</div>
+                        <div>
+                            <span class="step-title">Absorption:</span> Price <strong>fails to expand lower</strong>. Candle leaves a bottom rejection wick.
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">4</div>
+                        <div>
+                            <span class="step-title">CVD Check:</span> Sub-panel <strong>TheflowX_cvd</strong> makes a <strong>Higher Low</strong> (Divergence) or holds baseline.
+                        </div>
+                    </li>
+                    <li class="step-row">
+                        <div class="step-num">5</div>
+                        <div>
+                            <span class="step-title">Entry:</span> Enter <strong>Market Long</strong> on rejection candle close (or Buy Stop 1 tick above candle high).
+                        </div>
+                    </li>
+                </ul>
+
+                <div class="exec-bar">
+                    <div><span class="exec-badge badge-stop">STOP LOSS</span> 1 to 2 points (4–8 ticks) below the low wick.</div>
+                    <div><span class="exec-badge badge-target">TARGET 1</span> Close 50% at <span class="highlight-gold">-1.0σ Band</span> & move stop to B/E (+1 tick).</div>
+                    <div><span class="exec-badge badge-target">TARGET 2</span> Close remaining 50% at <span class="highlight-gold">VWAP Midline (Orange Line)</span>.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Bottom Section: Checklist & Red Flags -->
+    <div class="bottom-grid">
+
+        <div class="checklist-box">
+            <div class="checklist-title">
+                <span>☑️ Pre-Execution 5-Second Checklist</span>
+            </div>
+            <label class="check-item">
+                <input type="checkbox">
+                <span>1. Is price at or outside the <strong>±2.0σ VWAP Band</strong>?</span>
+            </label>
+            <label class="check-item">
+                <input type="checkbox">
+                <span>2. Did a <strong>BigTrade Bubble (≥75 contracts)</strong> print on the wick?</span>
+            </label>
+            <label class="check-item">
+                <input type="checkbox">
+                <span>3. Did price <strong>stall and reject</strong> instead of continuing through?</span>
+            </label>
+            <label class="check-item">
+                <input type="checkbox">
+                <span>4. Does <strong>CVD show divergence or exhaustion</strong>?</span>
+            </label>
+            <label class="check-item">
+                <input type="checkbox">
+                <span>5. Is my hard Stop Loss defined <strong>1-2 points outside the wick</strong>?</span>
+            </label>
+        </div>
+
+        <div class="flags-box">
+            <div class="flags-title">
+                <span>🚫 Walk-Away Red Flags (NO TRADE)</span>
+            </div>
+            <div class="flag-item">
+                <span class="flag-icon">&#10006;</span>
+                <span><strong>No trades in the middle:</strong> Never fade between +1σ and -1σ bands.</span>
+            </div>
+            <div class="flag-item">
+                <span class="flag-icon">&#10006;</span>
+                <span><strong>Trend Breakout:</strong> Full-body candles closing outside the 2σ band with no wicks.</span>
+            </div>
+            <div class="flag-item">
+                <span class="flag-icon">&#10006;</span>
+                <span><strong>News Events:</strong> No entries within 2 mins of CPI, FOMC, or NFP.</span>
+            </div>
+            <div class="flag-item">
+                <span class="flag-icon">&#10006;</span>
+                <span><strong>Missing BigTrade:</strong> If no bubble appears, do not guess absorption.</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Quick Reference Settings Table -->
+    <table class="settings-table">
+        <thead>
+            <tr>
+                <th>Indicator</th>
+                <th>Core Setting</th>
+                <th>Configured Value</th>
+                <th>Role in Trading</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>TheflowX_bigtrades</strong></td>
+                <td>Minimum Size / Sweep Window</td>
+                <td><strong>75 contracts / 100 ms</strong></td>
+                <td>Identifies institutional size hitting the book.</td>
+            </tr>
+            <tr>
+                <td><strong>TheflowX_vwap</strong></td>
+                <td>1σ &amp; 2σ Multipliers</td>
+                <td><strong>1 &amp; 2 (Checked)</strong></td>
+                <td>2σ = Reversal entry zone; 1σ = TP1; Midline = TP2.</td>
+            </tr>
+            <tr>
+                <td><strong>TheflowX_cvd</strong></td>
+                <td>Style &amp; Reset</td>
+                <td><strong>Candles / EachSession</strong></td>
+                <td>Detects delta divergences at the extremes.</td>
+            </tr>
+        </tbody>
+    </table>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+test_compile.dll
+test_compile_lowfreq.dll
+*.tmp
+.system_generated/
+*.suo
+*.user
+*.cache

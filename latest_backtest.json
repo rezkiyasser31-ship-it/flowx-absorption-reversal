@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-10-09T16:56:13.9599703-11:00",
+  "strategy": "FlowXAbsorptionReversal_ES",
+  "instrument": "MES DEC26",
+  "netProfit": -53.80,
+  "grossProfit": 0.00,
+  "grossLoss": -53.80,
+  "profitFactor": 0.00,
+  "totalTrades": 1,
+  "winTrades": 0,
+  "lossTrades": 1,
+  "winRate": 0.00,
+  "commission": 3.80,
+  "sharpeRatio": -9.10,
+  "sortinoRatio": -30.19
+}
