@@ -146,12 +146,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
-				// 6. Intraday Institutional Window (10:30 - 14:00 EST / 17:00 - 20:30 chart time)
+				// 6. Intraday Institutional Window (10:30 - 13:30 EST / 17:00 - 20:00 chart time)
 				UseTimeFilter						= true;
 				TradeStartHour						= 17;
 				TradeStartMinute					= 0;
 				TradeEndHour						= 20;
-				TradeEndMinute						= 30;
+				TradeEndMinute						= 0;
 
 				// 7. MT5 Bridge & Alerts
 				EnableBridge						= true;
@@ -598,6 +598,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					if (!isBreakevenArmed)
 					{
 						isBreakevenArmed = true;
+						SetStopLoss(CalculationMode.Price, entry);
 						BroadcastSignal("BREAKEVEN", 0, 0);
 					}
 				}
@@ -628,7 +629,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 					if (candidateTrail < entry)
 					{
 						if (structuralTrailingStop <= 0 || candidateTrail < structuralTrailingStop)
+						{
 							structuralTrailingStop = candidateTrail;
+							SetStopLoss(CalculationMode.Price, structuralTrailingStop);
+						}
 					}
 
 					if (structuralTrailingStop > 0 && High[0] >= structuralTrailingStop)
@@ -668,6 +672,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					if (!isBreakevenArmed)
 					{
 						isBreakevenArmed = true;
+						SetStopLoss(CalculationMode.Price, entry);
 						BroadcastSignal("BREAKEVEN", 0, 0);
 					}
 				}
@@ -698,7 +703,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 					if (candidateTrail > entry)
 					{
 						if (structuralTrailingStop <= 0 || candidateTrail > structuralTrailingStop)
+						{
 							structuralTrailingStop = candidateTrail;
+							SetStopLoss(CalculationMode.Price, structuralTrailingStop);
+						}
 					}
 
 					if (structuralTrailingStop > 0 && Low[0] <= structuralTrailingStop)
