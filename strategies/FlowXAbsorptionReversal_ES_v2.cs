@@ -751,8 +751,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				if (!System.IO.Directory.Exists(dir))
 					System.IO.Directory.CreateDirectory(dir);
 
-				string jsonPath = System.IO.Path.Combine(dir, "latest_backtest.json");
-				string txtPath  = System.IO.Path.Combine(dir, "latest_backtest_summary.txt");
+				string jsonPath = System.IO.Path.Combine(dir, "latest_backtest_v2.json");
+				string txtPath  = System.IO.Path.Combine(dir, "latest_backtest_summary_v2.txt");
 
 				if (SystemPerformance == null || SystemPerformance.AllTrades == null || Bars == null || Bars.Count == 0)
 					return;
