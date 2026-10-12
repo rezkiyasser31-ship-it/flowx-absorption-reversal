@@ -91,6 +91,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private int lastKnownTradeCount;
 		#endregion
 
+		#region Private Fields - Institutional Alpha Suite (v2)
+		private double ibHigh = double.MinValue;
+		private double ibLow  = double.MaxValue;
+		private bool   isIbEstablished;
+		private double structuralTrailingStop;
+		private ATR    atrIndicator;
+		#endregion
+
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
@@ -151,6 +159,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 				Mt5Lots								= 2.0;
 				TelegramBotToken					= "";
 				TelegramChatId						= "";
+
+				// 8. Institutional v2 Alpha Suite Defaults
+				EnableStructuralTrail				= true;  // Structural swing trail on runner after TP1
+				TrailLookbackBars					= 2;     // 2-bar swing wick lookback
+				TrackInitialBalance					= true;  // Track 60-min Initial Balance (IBH / IBL)
+				RequireIbSweep						= false; // Tag IB sweep without restricting standard entries
+				UseAtrBreakeven						= false; // Optional ATR-normalized Breakeven
+				AtrMultiplier						= 1.2;   // 1.2x ATR(14)
 			}
 			else if (State == State.Configure)
 			{
@@ -162,6 +178,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 			{
 				sessionIterator = new SessionIterator(Bars);
 				barVolumeSma    = SMA(Volume, 20);
+				atrIndicator    = ATR(14);
 				ClearSessionState();
 
 				// Default broker stop (updated per entry wick)
@@ -195,6 +212,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 			isBreakevenArmed			= false;
 			sessionLossCount			= 0;
 			currentPositionEntryPrice	= 0;
+			ibHigh						= double.MinValue;
+			ibLow						= double.MaxValue;
+			isIbEstablished				= false;
+			structuralTrailingStop		= 0;
 		}
 
 		protected override void OnBarUpdate()
@@ -269,6 +290,20 @@ namespace NinjaTrader.NinjaScript.Strategies
 						lastExitBar = CurrentBar;
 					}
 					return;
+				}
+
+				// --- 3B. Initial Balance (IB: First 60 mins of Session: 09:30 - 10:30 EST) ---
+				if (TrackInitialBalance)
+				{
+					if (minutesFromOpen <= 60 && minutesFromOpen >= 0)
+					{
+						if (High[0] > ibHigh) ibHigh = High[0];
+						if (Low[0]  < ibLow)  ibLow  = Low[0];
+					}
+					else if (minutesFromOpen > 60 && !isIbEstablished && ibHigh > double.MinValue && ibLow < double.MaxValue)
+					{
+						isIbEstablished = true;
+					}
 				}
 			}
 
@@ -458,7 +493,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// Structural Confluence: Prior Day High sweep or neutral
 				bool structuralResistance = !RequirePriorDayConfluence || priorDayHigh <= 0 || (High[0] >= priorDayHigh - (2 * TickSize));
 
-				if (testedUpperBand && buyersTrapped && hasUpperWick && isBearishBar && cvdExhaustedShort && structuralResistance)
+				// Initial Balance Confluence: Sweep of 60-min opening high
+				bool ibSweepShort = !RequireIbSweep || (isIbEstablished && High[0] >= (ibHigh - (2 * TickSize)));
+
+				if (testedUpperBand && buyersTrapped && hasUpperWick && isBearishBar && cvdExhaustedShort && structuralResistance && ibSweepShort)
 				{
 					double entryPrice = Close[0];
 					double trapWickHigh = Math.Max(High[0], High[1]) + (2 * TickSize);
@@ -472,10 +510,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 						lastEntryBar              = CurrentBar;
 						tp1Filled                 = false;
 						isBreakevenArmed          = false;
+						structuralTrailingStop    = 0;
 						currentPositionEntryPrice = entryPrice;
 
+						string entryTag = (isIbEstablished && High[0] >= ibHigh) ? "Short_Absorption_IBSweep" : "Short_Absorption";
 						BroadcastSignal("SELL", stopPoints, 10.0);
-						EnterShort(Quantity, "Short_Absorption");
+						EnterShort(Quantity, entryTag);
 						return;
 					}
 				}
@@ -511,7 +551,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// Structural Confluence: Prior Day Low sweep or neutral
 				bool structuralSupport = !RequirePriorDayConfluence || priorDayLow <= 0 || (Low[0] <= priorDayLow + (2 * TickSize));
 
-				if (testedLowerBand && sellersTrapped && hasLowerWick && isBullishBar && cvdExhaustedLong && structuralSupport)
+				// Initial Balance Confluence: Sweep of 60-min opening low
+				bool ibSweepLong = !RequireIbSweep || (isIbEstablished && Low[0] <= (ibLow + (2 * TickSize)));
+
+				if (testedLowerBand && sellersTrapped && hasLowerWick && isBullishBar && cvdExhaustedLong && structuralSupport && ibSweepLong)
 				{
 					double entryPrice = Close[0];
 					double trapWickLow = Math.Min(Low[0], Low[1]) - (2 * TickSize);
@@ -525,10 +568,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 						lastEntryBar              = CurrentBar;
 						tp1Filled                 = false;
 						isBreakevenArmed          = false;
+						structuralTrailingStop    = 0;
 						currentPositionEntryPrice = entryPrice;
 
+						string entryTag = (isIbEstablished && Low[0] <= ibLow) ? "Long_Absorption_IBSweep" : "Long_Absorption";
 						BroadcastSignal("BUY", stopPoints, 10.0);
-						EnterLong(Quantity, "Long_Absorption");
+						EnterLong(Quantity, entryTag);
 						return;
 					}
 				}
@@ -537,13 +582,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 		private void ManageDynamicTargets()
 		{
+			// Dynamic / Volatility-Adaptive Breakeven Trigger
+			double effectiveBeTrigger = UseAtrBreakeven && atrIndicator != null && CurrentBar >= 14
+				? Math.Max(2.5, atrIndicator[0] * AtrMultiplier)
+				: BreakevenTriggerPoints;
+
 			if (Position.MarketPosition == MarketPosition.Short)
 			{
 				double entry = Position.AveragePrice > 0 ? Position.AveragePrice : currentPositionEntryPrice;
 				double profitPoints = entry - Low[0];
 
-				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
-				if (profitPoints >= BreakevenTriggerPoints)
+				// 1. Arm Breakeven Guard once in profit by effective trigger
+				if (profitPoints >= effectiveBeTrigger)
 				{
 					if (!isBreakevenArmed)
 					{
@@ -560,11 +610,37 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitShort(1, "TP1_Dev1_Short", "Short_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
+						structuralTrailingStop = 0; // Arm trail for runner
 						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
-				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
+				// 3. Structural Swing Trailing Stop (Runner Maximizer after TP1)
+				if (EnableStructuralTrail && tp1Filled)
+				{
+					double swingHigh = High[1];
+					for (int b = 2; b <= Math.Min(TrailLookbackBars, CurrentBar); b++)
+					{
+						if (High[b] > swingHigh) swingHigh = High[b];
+					}
+					double candidateTrail = swingHigh + (2 * TickSize);
+
+					if (candidateTrail < entry)
+					{
+						if (structuralTrailingStop <= 0 || candidateTrail < structuralTrailingStop)
+							structuralTrailingStop = candidateTrail;
+					}
+
+					if (structuralTrailingStop > 0 && High[0] >= structuralTrailingStop)
+					{
+						ExitShort("Trail_Short", "Short_Absorption");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+						return;
+					}
+				}
+
+				// 4. Breakeven Guard Exit (Prevents winners from turning into losses)
 				if (isBreakevenArmed && High[0] >= entry)
 				{
 					ExitShort("BE_Short", "Short_Absorption");
@@ -573,7 +649,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					return;
 				}
 
-				// 4. TP2: Mean Reversion to VWAP Midline
+				// 5. TP2: Mean Reversion to VWAP Midline
 				if (currentVwap < entry && Low[0] <= currentVwap)
 				{
 					ExitShort("TP2_VWAP_Short", "Short_Absorption");
@@ -586,8 +662,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 				double entry = Position.AveragePrice > 0 ? Position.AveragePrice : currentPositionEntryPrice;
 				double profitPoints = High[0] - entry;
 
-				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
-				if (profitPoints >= BreakevenTriggerPoints)
+				// 1. Arm Breakeven Guard once in profit by effective trigger
+				if (profitPoints >= effectiveBeTrigger)
 				{
 					if (!isBreakevenArmed)
 					{
@@ -604,11 +680,37 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitLong(1, "TP1_Dev1_Long", "Long_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
+						structuralTrailingStop = 0; // Arm trail for runner
 						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
-				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
+				// 3. Structural Swing Trailing Stop (Runner Maximizer after TP1)
+				if (EnableStructuralTrail && tp1Filled)
+				{
+					double swingLow = Low[1];
+					for (int b = 2; b <= Math.Min(TrailLookbackBars, CurrentBar); b++)
+					{
+						if (Low[b] < swingLow) swingLow = Low[b];
+					}
+					double candidateTrail = swingLow - (2 * TickSize);
+
+					if (candidateTrail > entry)
+					{
+						if (structuralTrailingStop <= 0 || candidateTrail > structuralTrailingStop)
+							structuralTrailingStop = candidateTrail;
+					}
+
+					if (structuralTrailingStop > 0 && Low[0] <= structuralTrailingStop)
+					{
+						ExitLong("Trail_Long", "Long_Absorption");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+						return;
+					}
+				}
+
+				// 4. Breakeven Guard Exit (Prevents winners from turning into losses)
 				if (isBreakevenArmed && Low[0] <= entry)
 				{
 					ExitLong("BE_Long", "Long_Absorption");
@@ -617,7 +719,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					return;
 				}
 
-				// 4. TP2: Mean Reversion to VWAP Midline
+				// 5. TP2: Mean Reversion to VWAP Midline
 				if (currentVwap > entry && High[0] >= currentVwap)
 				{
 					ExitLong("TP2_VWAP_Long", "Long_Absorption");
@@ -922,6 +1024,34 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[NinjaScriptProperty]
 		[Display(Name = "Telegram Chat ID", GroupName = "7. MT5 Bridge & Alerts", Order = 29)]
 		public string TelegramChatId { get; set; }
+		#endregion
+
+		#region Institutional Alpha Suite Properties (v2)
+		[NinjaScriptProperty]
+		[Display(Name = "Enable Structural Trail (Runner Lock)", GroupName = "8. Alpha Suite Enhancements", Order = 30)]
+		public bool EnableStructuralTrail { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(1, 10)]
+		[Display(Name = "Trail Lookback Bars", GroupName = "8. Alpha Suite Enhancements", Order = 31)]
+		public int TrailLookbackBars { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Track Initial Balance (60-min IB)", GroupName = "8. Alpha Suite Enhancements", Order = 32)]
+		public bool TrackInitialBalance { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Require IB Sweep Confluence", GroupName = "8. Alpha Suite Enhancements", Order = 33)]
+		public bool RequireIbSweep { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Use ATR Breakeven (Adaptive)", GroupName = "8. Alpha Suite Enhancements", Order = 34)]
+		public bool UseAtrBreakeven { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(0.5, 3.0)]
+		[Display(Name = "ATR Multiplier", GroupName = "8. Alpha Suite Enhancements", Order = 35)]
+		public double AtrMultiplier { get; set; }
 		#endregion
 
 		private void BroadcastSignal(string action, double stopPoints, double tpPoints)
