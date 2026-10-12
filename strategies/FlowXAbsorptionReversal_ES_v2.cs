@@ -119,13 +119,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// 1. Order Flow Parameters (Institutional Defaults)
 				UseAdaptiveSweep					= true; // Dynamic RVol Scaling
 				SweepVolumeRatio					= 0.20; // 20% of 20-bar average volume
-				MinSweepFloor						= 150;  // Floor: 150 contracts
-				MinBigTradeSize						= 300;  // Static fallback: 300 contracts
+				MinSweepFloor						= 100;  // Floor: 100 contracts (scaled for daily frequency)
+				MinBigTradeSize						= 250;  // Static fallback: 250 contracts
 				StrictDeltaReversal					= true; // Require Delta sign reversal (<0 for short, >0 for long)
 				RequireCvdDivergence				= true; // Require CVD exhaustion
 
 				// 2. VWAP Parameters
-				VwapDev2							= 2.00; // 2.00σ Entry Zone (standard institutional deviation)
+				VwapDev2							= 1.65; // 1.65σ Value Area Extension (boosts trade opportunities)
 
 				// 3. Risk & Structural Execution (ES Scale: $50/pt)
 				MinStopPoints						= 5.0;  // 20 ticks = $250/contract
@@ -140,16 +140,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 				CooldownBars						= 3;    // Cooldown after an exit
 				MinWickPoints						= 0.75; // Minimum rejection wick (3 ticks = 0.75 pts)
 				TrappedBarsLookback					= 2;    // Reaction window for absorption
-				OpeningBufferMinutes				= 45;   // Skip opening drive
+				OpeningBufferMinutes				= 30;   // 30-min buffer (captures 10:00 AM NY reversal)
 				EnableTrendFilter					= true; // Protect against fading strong trend days
 				TrendSlopeThreshold					= 1.0;  // 1.0 pt VWAP slope indicates trend
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
-				// 6. Intraday Institutional Window (10:30 - 14:00 EST / 17:00 - 20:30 chart time)
+				// 6. Intraday Institutional Window (10:00 - 14:00 EST / 16:30 - 20:30 chart time)
 				UseTimeFilter						= true;
-				TradeStartHour						= 17;
-				TradeStartMinute					= 0;
+				TradeStartHour						= 16;
+				TradeStartMinute					= 30;
 				TradeEndHour						= 20;
 				TradeEndMinute						= 30;
 
@@ -161,7 +161,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				TelegramChatId						= "";
 
 				// 8. Institutional v2 Alpha Suite Defaults
-				EnableStructuralTrail				= true;  // Structural swing trail on runner after TP1
+				EnableStructuralTrail				= false; // Keep false to allow runner to reach VWAP midline target
 				TrailLookbackBars					= 2;     // 2-bar swing wick lookback
 				TrackInitialBalance					= true;  // Track 60-min Initial Balance (IBH / IBL)
 				RequireIbSweep						= false; // Tag IB sweep without restricting standard entries
