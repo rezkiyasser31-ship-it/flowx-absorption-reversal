@@ -148,6 +148,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 				TradeStartMinute					= 0;
 				TradeEndHour						= 20;
 				TradeEndMinute						= 30;
+
+				// 7. MT5 Bridge & Alerts
+				EnableBridge						= true;
+				BridgeWebhookUrl					= "http://127.0.0.1:5005/trade";
+				Mt5Lots								= 2.0;
+				TelegramBotToken					= "";
+				TelegramChatId						= "";
 			}
 			else if (State == State.Configure)
 			{
@@ -471,6 +478,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						isBreakevenArmed          = false;
 						currentPositionEntryPrice = entryPrice;
 
+						BroadcastSignal("SELL", stopPoints, 10.0);
 						EnterShort(Quantity, "Short_Absorption");
 						return;
 					}
@@ -523,6 +531,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						isBreakevenArmed          = false;
 						currentPositionEntryPrice = entryPrice;
 
+						BroadcastSignal("BUY", stopPoints, 10.0);
 						EnterLong(Quantity, "Long_Absorption");
 						return;
 					}
@@ -876,6 +885,70 @@ namespace NinjaTrader.NinjaScript.Strategies
 		[Range(0, 59)]
 		[Display(Name = "Trade End Minute", GroupName = "6. Session Window", Order = 24)]
 		public int TradeEndMinute { get; set; }
+
+		#region Bridge & Alerts Properties
+		[NinjaScriptProperty]
+		[Display(Name = "Enable MT5 Bridge", GroupName = "7. MT5 Bridge & Alerts", Order = 25)]
+		public bool EnableBridge { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Bridge Webhook URL", GroupName = "7. MT5 Bridge & Alerts", Order = 26)]
+		public string BridgeWebhookUrl { get; set; }
+
+		[NinjaScriptProperty]
+		[Range(0.1, 50.0)]
+		[Display(Name = "MT5 Lots (0.10 to 50)", GroupName = "7. MT5 Bridge & Alerts", Order = 27)]
+		public double Mt5Lots { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Telegram Bot Token", GroupName = "7. MT5 Bridge & Alerts", Order = 28)]
+		public string TelegramBotToken { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Telegram Chat ID", GroupName = "7. MT5 Bridge & Alerts", Order = 29)]
+		public string TelegramChatId { get; set; }
+		#endregion
+
+		private void BroadcastSignal(string action, double stopPoints, double tpPoints)
+		{
+			// 1. Direct MT5 Python Bridge Webhook
+			if (EnableBridge && !string.IsNullOrEmpty(BridgeWebhookUrl))
+			{
+				try
+				{
+					using (var client = new System.Net.WebClient())
+					{
+						client.Headers[System.Net.HttpRequestHeader.ContentType] = "application/json";
+						string payload = string.Format(
+							System.Globalization.CultureInfo.InvariantCulture,
+							"{{\"action\":\"{0}\",\"volume\":{1:F2},\"stop_points\":{2:F2},\"tp_points\":{3:F2},\"source\":\"FlowX_ES\"}}",
+							action, Mt5Lots, stopPoints, tpPoints);
+						client.UploadStringAsync(new Uri(BridgeWebhookUrl), "POST", payload);
+					}
+				}
+				catch { }
+			}
+
+			// 2. Direct Telegram Broadcast
+			if (!string.IsNullOrEmpty(TelegramBotToken) && !string.IsNullOrEmpty(TelegramChatId))
+			{
+				try
+				{
+					using (var client = new System.Net.WebClient())
+					{
+						string text = string.Format(
+							System.Globalization.CultureInfo.InvariantCulture,
+							"⚡ *FLOWX INSTITUTIONAL SIGNAL* ⚡%0A• Direction: *{0}*%0A• Stop: {1:F2} pts%0A• Target: {2:F2} pts%0A• Lots: {3:F2}",
+							action, stopPoints, tpPoints, Mt5Lots);
+						string url = string.Format(
+							"https://api.telegram.org/bot{0}/sendMessage?chat_id={1}&text={2}&parse_mode=Markdown",
+							TelegramBotToken, TelegramChatId, text);
+						client.DownloadStringAsync(new Uri(url));
+					}
+				}
+				catch { }
+			}
+		}
 		#endregion
 	}
 }
