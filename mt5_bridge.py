@@ -2,7 +2,7 @@
 FlowX MT5 Execution Bridge & Telegram Dispatcher
 ================================================
 Connects NinjaTrader 8 FlowX order flow signals to:
-1. MetaTrader 5 API for direct automated order execution (US500Cash).
+1. MetaTrader 5 API for direct automated order execution, Breakeven trailing, and exits (US500Cash).
 2. Telegram Bot API for instant signal broadcasting to a channel/group.
 
 Zero external dependencies required (uses built-in http.server, urllib, MetaTrader5).
@@ -17,6 +17,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import urllib.request
 import urllib.parse
 import MetaTrader5 as mt5
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,7 +53,6 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 def send_telegram_alert(message: str):
     """Sends a markdown-formatted message to Telegram channel/chat."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logger.info("[Telegram] Bot token or Chat ID not configured. Skipping notification.")
         return False
     
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -69,20 +73,23 @@ def send_telegram_alert(message: str):
     return False
 
 # ==============================================================================
-# MT5 DIRECT EXECUTION ENGINE
+# MT5 DIRECT EXECUTION & EXIT ENGINE
 # ==============================================================================
+def ensure_mt5_connected():
+    if not mt5.initialize():
+        logger.error(f"[MT5] Initialization failed: {mt5.last_error()}")
+        return False
+    if not mt5.symbol_select(SYMBOL, True):
+        logger.error(f"[MT5] Failed to select symbol {SYMBOL}")
+        return False
+    return True
+
 def execute_mt5_order(action: str, volume: float, stop_points: float, tp_points: float, comment: str = "FlowX_ES"):
     """
     Executes a direct market deal in MT5 on US500Cash with attached SL and TP.
     """
-    if not mt5.initialize():
-        logger.error(f"[MT5] Initialization failed: {mt5.last_error()}")
-        return {"success": False, "error": "MT5 initialize failed"}
-    
-    # Ensure symbol is selected in Market Watch
-    if not mt5.symbol_select(SYMBOL, True):
-        logger.error(f"[MT5] Failed to select symbol {SYMBOL}")
-        return {"success": False, "error": f"Symbol {SYMBOL} not found"}
+    if not ensure_mt5_connected():
+        return {"success": False, "error": "MT5 connection failed"}
 
     tick = mt5.symbol_info_tick(SYMBOL)
     if tick is None:
@@ -139,7 +146,7 @@ def execute_mt5_order(action: str, volume: float, stop_points: float, tp_points:
         logger.error(f"[MT5] Order Execution Failed: code={result.retcode}, comment={result.comment}")
         return {"success": False, "retcode": result.retcode, "comment": result.comment}
 
-    logger.info(f"✅ [MT5 EXECUTED] Ticket #{result.order} | {action_upper} {volume} lots @ {result.price:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
+    logger.info(f"[MT5 EXECUTED] Ticket #{result.order} | {action_upper} {volume} lots @ {result.price:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
     return {
         "success": True,
         "ticket": result.order,
@@ -149,6 +156,131 @@ def execute_mt5_order(action: str, volume: float, stop_points: float, tp_points:
         "tp": tp,
         "comment": result.comment
     }
+
+def execute_breakeven():
+    """
+    Finds all open positions for SYMBOL with MAGIC_NUMBER and moves Stop Loss to Entry Price (Breakeven).
+    """
+    if not ensure_mt5_connected():
+        return {"success": False, "error": "MT5 connection failed"}
+
+    positions = mt5.positions_get(symbol=SYMBOL)
+    if not positions:
+        return {"success": True, "message": "No open positions to modify"}
+
+    modified = []
+    for pos in positions:
+        if pos.magic != MAGIC_NUMBER:
+            continue
+        
+        # Check if already at or better than breakeven
+        if pos.type == mt5.ORDER_TYPE_BUY and pos.sl >= pos.price_open:
+            continue
+        if pos.type == mt5.ORDER_TYPE_SELL and pos.sl <= pos.price_open and pos.sl > 0:
+            continue
+
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "sl": round(pos.price_open, 2),
+            "tp": pos.tp
+        }
+        res = mt5.order_send(request)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"[BREAKEVEN ARMED] Ticket #{pos.ticket} SL moved to Entry @ {pos.price_open:.2f}")
+            modified.append(pos.ticket)
+        else:
+            logger.warning(f"[BREAKEVEN FAILED] Ticket #{pos.ticket}: {res.comment if res else 'Unknown error'}")
+
+    return {"success": True, "modified_tickets": modified}
+
+def execute_close_half():
+    """
+    Closes 50% of the active volume for SYMBOL with MAGIC_NUMBER (TP1 scale-out).
+    """
+    if not ensure_mt5_connected():
+        return {"success": False, "error": "MT5 connection failed"}
+
+    positions = mt5.positions_get(symbol=SYMBOL)
+    if not positions:
+        return {"success": True, "message": "No positions to scale out"}
+
+    closed = []
+    for pos in positions:
+        if pos.magic != MAGIC_NUMBER:
+            continue
+        half_vol = round(pos.volume / 2.0, 1)
+        if half_vol < 0.1:
+            half_vol = pos.volume  # close remainder if tiny
+
+        tick = mt5.symbol_info_tick(pos.symbol)
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        close_price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "volume": half_vol,
+            "type": close_type,
+            "price": round(close_price, 2),
+            "deviation": SLIPPAGE_MAX,
+            "magic": MAGIC_NUMBER,
+            "comment": "FlowX_TP1_Half",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        res = mt5.order_send(request)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"[TP1 SCALED OUT] Ticket #{pos.ticket} Closed {half_vol} lots @ {close_price:.2f}")
+            closed.append(pos.ticket)
+        else:
+            logger.warning(f"[TP1 CLOSE FAILED] Ticket #{pos.ticket}: {res.comment if res else 'Unknown'}")
+
+    return {"success": True, "scaled_tickets": closed}
+
+def execute_close_all():
+    """
+    Closes 100% of open positions for SYMBOL with MAGIC_NUMBER (Full Exit / EOD Flatten).
+    """
+    if not ensure_mt5_connected():
+        return {"success": False, "error": "MT5 connection failed"}
+
+    positions = mt5.positions_get(symbol=SYMBOL)
+    if not positions:
+        return {"success": True, "message": "No open positions"}
+
+    closed = []
+    for pos in positions:
+        if pos.magic != MAGIC_NUMBER:
+            continue
+
+        tick = mt5.symbol_info_tick(pos.symbol)
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        close_price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "volume": pos.volume,
+            "type": close_type,
+            "price": round(close_price, 2),
+            "deviation": SLIPPAGE_MAX,
+            "magic": MAGIC_NUMBER,
+            "comment": "FlowX_Full_Exit",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        res = mt5.order_send(request)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"[FULL POSITION CLOSED] Ticket #{pos.ticket} Closed {pos.volume} lots @ {close_price:.2f}")
+            closed.append(pos.ticket)
+        else:
+            logger.warning(f"[FULL CLOSE FAILED] Ticket #{pos.ticket}: {res.comment if res else 'Unknown'}")
+
+    return {"success": True, "closed_tickets": closed}
 
 # ==============================================================================
 # HTTP WEBHOOK LISTENER FOR NINJATRADER 8
@@ -167,31 +299,49 @@ class SignalHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": f"Invalid JSON: {e}"}).encode("utf-8"))
             return
 
-        action = signal.get("action", "").upper()   # "BUY" or "SELL"
+        action = signal.get("action", "").upper()   # "BUY", "SELL", "BREAKEVEN", "CLOSE_HALF", "CLOSE_ALL"
         volume = float(signal.get("volume", DEFAULT_LOTS))
         stop_pts = float(signal.get("stop_points", 5.0))
         tp_pts = float(signal.get("tp_points", 10.0))
         source = signal.get("source", "FlowX_ES")
 
-        # 1. Execute directly in MT5
-        exec_result = execute_mt5_order(action, volume, stop_pts, tp_pts, comment=source)
+        exec_result = {}
 
-        # 2. Format & Dispatch Telegram Alert
-        status_icon = "🟢" if action == "BUY" else "🔴"
-        exec_status = f"✅ Executed (Ticket #{exec_result.get('ticket')})" if exec_result.get("success") else f"❌ Failed ({exec_result.get('error')})"
-        
-        tg_text = (
-            f"⚡ *FLOWX INSTITUTIONAL SIGNAL* ⚡\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Direction*: {status_icon} *{action}*\n"
-            f"• *Instrument*: `{SYMBOL}` (ES Futures Correlation)\n"
-            f"• *Volume*: `{volume:.2f} lots` (~${volume:.2f}/pt)\n"
-            f"• *Stop Loss*: `±{stop_pts:.2f} pts` (Risk: ~${stop_pts * volume:.2f})\n"
-            f"• *Target (TP)*: `±{tp_pts:.2f} pts` (Reward: ~${tp_pts * volume:.2f})\n"
-            f"• *Execution*: {exec_status}\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
-        send_telegram_alert(tg_text)
+        # 1. Routing based on action type
+        if action in ("BREAKEVEN", "BE"):
+            exec_result = execute_breakeven()
+            tg_text = "🛡️ *FLOWX BREAKEVEN GUARD ARMED*\n━━━━━━━━━━━━━━━━━━━\n• Stop Loss moved to Entry Price\n• Trade is now risk-free."
+            send_telegram_alert(tg_text)
+
+        elif action in ("CLOSE_HALF", "TP1"):
+            exec_result = execute_close_half()
+            tg_text = "🎯 *FLOWX TP1 TARGET HIT*\n━━━━━━━━━━━━━━━━━━━\n• Scaled out 50% position\n• Profits secured."
+            send_telegram_alert(tg_text)
+
+        elif action in ("CLOSE_ALL", "FLAT", "EXIT"):
+            exec_result = execute_close_all()
+            tg_text = "🏁 *FLOWX POSITION CLOSED*\n━━━━━━━━━━━━━━━━━━━\n• Position fully liquidated."
+            send_telegram_alert(tg_text)
+
+        elif action in ("BUY", "LONG", "SELL", "SHORT"):
+            exec_result = execute_mt5_order(action, volume, stop_pts, tp_pts, comment=source)
+            status_icon = "🟢" if action in ("BUY", "LONG") else "🔴"
+            exec_status = f"✅ Executed (Ticket #{exec_result.get('ticket')})" if exec_result.get("success") else f"❌ Failed ({exec_result.get('error')})"
+            
+            tg_text = (
+                f"⚡ *FLOWX INSTITUTIONAL SIGNAL* ⚡\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"• *Direction*: {status_icon} *{action}*\n"
+                f"• *Instrument*: `{SYMBOL}` (ES Futures Correlation)\n"
+                f"• *Volume*: `{volume:.2f} lots` (~${volume:.2f}/pt)\n"
+                f"• *Stop Loss*: `±{stop_pts:.2f} pts` (Risk: ~${stop_pts * volume:.2f})\n"
+                f"• *Target (TP)*: `±{tp_pts:.2f} pts` (Reward: ~${tp_pts * volume:.2f})\n"
+                f"• *Execution*: {exec_status}\n"
+                f"━━━━━━━━━━━━━━━━━━━"
+            )
+            send_telegram_alert(tg_text)
+        else:
+            exec_result = {"success": False, "error": f"Unknown action: {action}"}
 
         # Respond to NinjaTrader
         self.send_response(200)
@@ -204,12 +354,11 @@ class SignalHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(response_payload).encode("utf-8"))
 
     def log_message(self, format, *args):
-        # Suppress noisy HTTP access logs
         return
 
 def run_server():
     server = HTTPServer((HOST, PORT), SignalHandler)
-    logger.info(f"🚀 FlowX MT5 Bridge is LISTENING on http://{HOST}:{PORT}/trade")
+    logger.info(f"[FlowX] MT5 Bridge is LISTENING on http://{HOST}:{PORT}/trade")
     logger.info(f"   Target Symbol: {SYMBOL} | Default Lots: {DEFAULT_LOTS}")
     server.serve_forever()
 

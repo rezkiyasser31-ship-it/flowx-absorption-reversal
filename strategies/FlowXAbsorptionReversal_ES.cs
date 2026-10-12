@@ -548,7 +548,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
 				if (profitPoints >= BreakevenTriggerPoints)
-					isBreakevenArmed = true;
+				{
+					if (!isBreakevenArmed)
+					{
+						isBreakevenArmed = true;
+						BroadcastSignal("BREAKEVEN", 0, 0);
+					}
+				}
 
 				// 2. TP1: Scale out 1 contract at VWAP +1.0σ (must be in profit by at least 1.5 pts)
 				if (!tp1Filled && upperBand1 <= (entry - 1.5))
@@ -558,6 +564,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitShort(1, "TP1_Dev1_Short", "Short_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
+						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
@@ -566,6 +573,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					ExitShort("BE_Short", "Short_Absorption");
 					lastExitBar = CurrentBar;
+					BroadcastSignal("CLOSE_ALL", 0, 0);
 					return;
 				}
 
@@ -574,6 +582,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					ExitShort("TP2_VWAP_Short", "Short_Absorption");
 					lastExitBar = CurrentBar;
+					BroadcastSignal("CLOSE_ALL", 0, 0);
 				}
 			}
 			else if (Position.MarketPosition == MarketPosition.Long)
@@ -583,7 +592,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
 				if (profitPoints >= BreakevenTriggerPoints)
-					isBreakevenArmed = true;
+				{
+					if (!isBreakevenArmed)
+					{
+						isBreakevenArmed = true;
+						BroadcastSignal("BREAKEVEN", 0, 0);
+					}
+				}
 
 				// 2. TP1: Scale out 1 contract at VWAP -1.0σ (must be in profit by at least 1.5 pts)
 				if (!tp1Filled && lowerBand1 >= (entry + 1.5))
@@ -593,6 +608,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitLong(1, "TP1_Dev1_Long", "Long_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
+						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
@@ -601,6 +617,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					ExitLong("BE_Long", "Long_Absorption");
 					lastExitBar = CurrentBar;
+					BroadcastSignal("CLOSE_ALL", 0, 0);
 					return;
 				}
 
@@ -609,6 +626,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					ExitLong("TP2_VWAP_Long", "Long_Absorption");
 					lastExitBar = CurrentBar;
+					BroadcastSignal("CLOSE_ALL", 0, 0);
 				}
 			}
 		}
@@ -622,6 +640,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					lastExitBar      = CurrentBar;
 					tp1Filled        = false;
 					isBreakevenArmed = false;
+					BroadcastSignal("CLOSE_ALL", 0, 0);
 				}
 			}
 		}
