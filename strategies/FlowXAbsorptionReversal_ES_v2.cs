@@ -146,12 +146,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
-				// 6. Intraday Institutional Window (10:30 - 13:30 EST / 17:00 - 20:00 chart time)
+				// 6. Intraday Institutional Window (10:30 - 14:00 EST / 17:00 - 20:30 chart time)
 				UseTimeFilter						= true;
 				TradeStartHour						= 17;
 				TradeStartMinute					= 0;
 				TradeEndHour						= 20;
-				TradeEndMinute						= 0;
+				TradeEndMinute						= 30;
 
 				// 7. MT5 Bridge & Alerts
 				EnableBridge						= true;
@@ -582,23 +582,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 		private void ManageDynamicTargets()
 		{
-			// Dynamic / Volatility-Adaptive Breakeven Trigger
-			double effectiveBeTrigger = UseAtrBreakeven && atrIndicator != null && CurrentBar >= 14
-				? Math.Max(2.5, atrIndicator[0] * AtrMultiplier)
-				: BreakevenTriggerPoints;
-
 			if (Position.MarketPosition == MarketPosition.Short)
 			{
 				double entry = Position.AveragePrice > 0 ? Position.AveragePrice : currentPositionEntryPrice;
 				double profitPoints = entry - Low[0];
 
-				// 1. Arm Breakeven Guard once in profit by effective trigger
-				if (profitPoints >= effectiveBeTrigger)
+				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
+				if (profitPoints >= BreakevenTriggerPoints)
 				{
 					if (!isBreakevenArmed)
 					{
 						isBreakevenArmed = true;
-						SetStopLoss(CalculationMode.Price, entry);
 						BroadcastSignal("BREAKEVEN", 0, 0);
 					}
 				}
@@ -611,40 +605,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitShort(1, "TP1_Dev1_Short", "Short_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
-						structuralTrailingStop = 0; // Arm trail for runner
 						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
-				// 3. Structural Swing Trailing Stop (Runner Maximizer after TP1)
-				if (EnableStructuralTrail && tp1Filled)
-				{
-					double swingHigh = High[1];
-					for (int b = 2; b <= Math.Min(TrailLookbackBars, CurrentBar); b++)
-					{
-						if (High[b] > swingHigh) swingHigh = High[b];
-					}
-					double candidateTrail = swingHigh + (2 * TickSize);
-
-					if (candidateTrail < entry)
-					{
-						if (structuralTrailingStop <= 0 || candidateTrail < structuralTrailingStop)
-						{
-							structuralTrailingStop = candidateTrail;
-							SetStopLoss(CalculationMode.Price, structuralTrailingStop);
-						}
-					}
-
-					if (structuralTrailingStop > 0 && High[0] >= structuralTrailingStop)
-					{
-						ExitShort("Trail_Short", "Short_Absorption");
-						lastExitBar = CurrentBar;
-						BroadcastSignal("CLOSE_ALL", 0, 0);
-						return;
-					}
-				}
-
-				// 4. Breakeven Guard Exit (Prevents winners from turning into losses)
+				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
 				if (isBreakevenArmed && High[0] >= entry)
 				{
 					ExitShort("BE_Short", "Short_Absorption");
@@ -653,7 +618,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					return;
 				}
 
-				// 5. TP2: Mean Reversion to VWAP Midline
+				// 4. TP2: Mean Reversion to VWAP Midline
 				if (currentVwap < entry && Low[0] <= currentVwap)
 				{
 					ExitShort("TP2_VWAP_Short", "Short_Absorption");
@@ -666,13 +631,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 				double entry = Position.AveragePrice > 0 ? Position.AveragePrice : currentPositionEntryPrice;
 				double profitPoints = High[0] - entry;
 
-				// 1. Arm Breakeven Guard once in profit by effective trigger
-				if (profitPoints >= effectiveBeTrigger)
+				// 1. Arm Breakeven Guard once in profit by BreakevenTriggerPoints (3.5 pts = $175)
+				if (profitPoints >= BreakevenTriggerPoints)
 				{
 					if (!isBreakevenArmed)
 					{
 						isBreakevenArmed = true;
-						SetStopLoss(CalculationMode.Price, entry);
 						BroadcastSignal("BREAKEVEN", 0, 0);
 					}
 				}
@@ -685,40 +649,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 						ExitLong(1, "TP1_Dev1_Long", "Long_Absorption");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
-						structuralTrailingStop = 0; // Arm trail for runner
 						BroadcastSignal("CLOSE_HALF", 0, 0);
 					}
 				}
 
-				// 3. Structural Swing Trailing Stop (Runner Maximizer after TP1)
-				if (EnableStructuralTrail && tp1Filled)
-				{
-					double swingLow = Low[1];
-					for (int b = 2; b <= Math.Min(TrailLookbackBars, CurrentBar); b++)
-					{
-						if (Low[b] < swingLow) swingLow = Low[b];
-					}
-					double candidateTrail = swingLow - (2 * TickSize);
-
-					if (candidateTrail > entry)
-					{
-						if (structuralTrailingStop <= 0 || candidateTrail > structuralTrailingStop)
-						{
-							structuralTrailingStop = candidateTrail;
-							SetStopLoss(CalculationMode.Price, structuralTrailingStop);
-						}
-					}
-
-					if (structuralTrailingStop > 0 && Low[0] <= structuralTrailingStop)
-					{
-						ExitLong("Trail_Long", "Long_Absorption");
-						lastExitBar = CurrentBar;
-						BroadcastSignal("CLOSE_ALL", 0, 0);
-						return;
-					}
-				}
-
-				// 4. Breakeven Guard Exit (Prevents winners from turning into losses)
+				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
 				if (isBreakevenArmed && Low[0] <= entry)
 				{
 					ExitLong("BE_Long", "Long_Absorption");
@@ -727,7 +662,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					return;
 				}
 
-				// 5. TP2: Mean Reversion to VWAP Midline
+				// 4. TP2: Mean Reversion to VWAP Midline
 				if (currentVwap > entry && High[0] >= currentVwap)
 				{
 					ExitLong("TP2_VWAP_Long", "Long_Absorption");
