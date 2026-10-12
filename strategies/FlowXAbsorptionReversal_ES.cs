@@ -930,6 +930,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 		private void BroadcastSignal(string action, double stopPoints, double tpPoints)
 		{
+			// CRITICAL: Only broadcast during live realtime execution (ignore historical bar catch-up)
+			if (State != State.Realtime)
+				return;
+
 			// 1. Direct MT5 Python Bridge Webhook
 			if (EnableBridge && !string.IsNullOrEmpty(BridgeWebhookUrl))
 			{
