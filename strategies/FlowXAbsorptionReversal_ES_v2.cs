@@ -87,6 +87,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private bool tp1Filled;
 		private bool isBreakevenArmed;
 		private double currentPositionEntryPrice;
+		private string currentEntryTag = "";
 		private int sessionLossCount;
 		private int lastKnownTradeCount;
 		#endregion
@@ -138,20 +139,20 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// 5. Microstructure & Market Structure Filters
 				CooldownBars						= 3;    // Cooldown after an exit
-				MinWickPoints						= 0.75; // Minimum rejection wick (3 ticks = 0.75 pts)
+				MinWickPoints						= 0.50; // Minimum rejection wick (2 ticks = 0.50 pts)
 				TrappedBarsLookback					= 2;    // Reaction window for absorption
 				OpeningBufferMinutes				= 30;   // 30-min buffer (captures 10:00 AM NY reversal)
 				EnableTrendFilter					= true; // Protect against fading strong trend days
-				TrendSlopeThreshold					= 1.0;  // 1.0 pt VWAP slope indicates trend
+				TrendSlopeThreshold					= 0.45; // 0.45 pt normalized VWAP slope indicates trend
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
-				// 6. Intraday Institutional Window (10:00 - 14:00 EST / 16:30 - 20:30 chart time)
+				// 6. Intraday Institutional Window (10:00 - 15:30 EST / 16:30 - 22:00 chart time)
 				UseTimeFilter						= true;
 				TradeStartHour						= 16;
 				TradeStartMinute					= 30;
-				TradeEndHour						= 20;
-				TradeEndMinute						= 30;
+				TradeEndHour						= 22;
+				TradeEndMinute						= 0;
 
 				// 7. MT5 Bridge & Alerts
 				EnableBridge						= true;
@@ -212,6 +213,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 			isBreakevenArmed			= false;
 			sessionLossCount			= 0;
 			currentPositionEntryPrice	= 0;
+			currentEntryTag				= "";
 			ibHigh						= double.MinValue;
 			ibLow						= double.MaxValue;
 			isIbEstablished				= false;
@@ -441,15 +443,21 @@ namespace NinjaTrader.NinjaScript.Strategies
 						return;
 				}
 
-				// VWAP Trend Regime Classification
+				// VWAP Trend Regime Classification (Volatility-Normalized Velocity)
 				bool isBullTrend = false;
 				bool isBearTrend = false;
 				if (EnableTrendFilter && CurrentBar >= SlopeLookbackBars && Values[0][SlopeLookbackBars] > 0)
 				{
 					double vwapSlope = currentVwap - Values[0][SlopeLookbackBars];
-					if (vwapSlope >= TrendSlopeThreshold)
+					double dynamicLimit = TrendSlopeThreshold;
+					if (atrIndicator != null && CurrentBar >= 14 && atrIndicator[0] > 0)
+					{
+						dynamicLimit = Math.Min(TrendSlopeThreshold, atrIndicator[0] * 0.25);
+					}
+
+					if (vwapSlope >= dynamicLimit)
 						isBullTrend = true;
-					else if (vwapSlope <= -TrendSlopeThreshold)
+					else if (vwapSlope <= -dynamicLimit)
 						isBearTrend = true;
 				}
 
@@ -496,6 +504,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// Initial Balance Confluence: Sweep of 60-min opening high
 				bool ibSweepShort = !RequireIbSweep || (isIbEstablished && High[0] >= (ibHigh - (2 * TickSize)));
 
+				// Protect against fading an active Initial Balance bull breakout in a bull trend
+				if (isIbEstablished && High[0] > ibHigh && Close[0] > ibHigh && isBullTrend)
+					return;
+
 				if (testedUpperBand && buyersTrapped && hasUpperWick && isBearishBar && cvdExhaustedShort && structuralResistance && ibSweepShort)
 				{
 					double entryPrice = Close[0];
@@ -513,7 +525,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 						structuralTrailingStop    = 0;
 						currentPositionEntryPrice = entryPrice;
 
-						string entryTag = (isIbEstablished && High[0] >= ibHigh) ? "Short_Absorption_IBSweep" : "Short_Absorption";
+						string entryTag           = (isIbEstablished && High[0] >= ibHigh) ? "Short_Absorption_IBSweep" : "Short_Absorption";
+						currentEntryTag           = entryTag;
 						BroadcastSignal("SELL", stopPoints, 10.0);
 						EnterShort(Quantity, entryTag);
 						return;
@@ -554,6 +567,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 				// Initial Balance Confluence: Sweep of 60-min opening low
 				bool ibSweepLong = !RequireIbSweep || (isIbEstablished && Low[0] <= (ibLow + (2 * TickSize)));
 
+				// Protect against fading an active Initial Balance bear breakdown in a bear trend
+				if (isIbEstablished && Low[0] < ibLow && Close[0] < ibLow && isBearTrend)
+					return;
+
 				if (testedLowerBand && sellersTrapped && hasLowerWick && isBullishBar && cvdExhaustedLong && structuralSupport && ibSweepLong)
 				{
 					double entryPrice = Close[0];
@@ -571,7 +588,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 						structuralTrailingStop    = 0;
 						currentPositionEntryPrice = entryPrice;
 
-						string entryTag = (isIbEstablished && Low[0] <= ibLow) ? "Long_Absorption_IBSweep" : "Long_Absorption";
+						string entryTag           = (isIbEstablished && Low[0] <= ibLow) ? "Long_Absorption_IBSweep" : "Long_Absorption";
+						currentEntryTag           = entryTag;
 						BroadcastSignal("BUY", stopPoints, 10.0);
 						EnterLong(Quantity, entryTag);
 						return;
@@ -582,6 +600,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 		private void ManageDynamicTargets()
 		{
+			bool isIbSweepTrade = !string.IsNullOrEmpty(currentEntryTag) && currentEntryTag.Contains("IBSweep");
+
 			if (Position.MarketPosition == MarketPosition.Short)
 			{
 				double entry = Position.AveragePrice > 0 ? Position.AveragePrice : currentPositionEntryPrice;
@@ -597,12 +617,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 
-				// 2. TP1: Scale out 1 contract at VWAP +1.0σ (must be in profit by at least 1.5 pts)
-				if (!tp1Filled && upperBand1 <= (entry - 1.5))
+				// 2. TP1: Scale out 1 contract at VWAP +1.0σ (for standard trades)
+				if (!tp1Filled && !isIbSweepTrade && upperBand1 <= (entry - 1.5))
 				{
 					if (Low[0] <= upperBand1)
 					{
-						ExitShort(1, "TP1_Dev1_Short", "Short_Absorption");
+						ExitShort(1, "TP1_Dev1_Short", "");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
 						BroadcastSignal("CLOSE_HALF", 0, 0);
@@ -610,20 +630,35 @@ namespace NinjaTrader.NinjaScript.Strategies
 				}
 
 				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
-				if (isBreakevenArmed && High[0] >= entry)
+				// Ratchet stop to Entry - 1 tick ($25 guaranteed profit/scratch)
+				if (isBreakevenArmed && High[0] >= (entry - (1 * TickSize)))
 				{
-					ExitShort("BE_Short", "Short_Absorption");
+					ExitShort("BE_Short", "");
 					lastExitBar = CurrentBar;
 					BroadcastSignal("CLOSE_ALL", 0, 0);
 					return;
 				}
 
-				// 4. TP2: Mean Reversion to VWAP Midline
-				if (currentVwap < entry && Low[0] <= currentVwap)
+				// 4. TP2: Profit Harvesting
+				if (!isIbSweepTrade)
 				{
-					ExitShort("TP2_VWAP_Short", "Short_Absorption");
-					lastExitBar = CurrentBar;
-					BroadcastSignal("CLOSE_ALL", 0, 0);
+					// Standard Mean Reversion target: VWAP Midline
+					if (currentVwap < entry && Low[0] <= currentVwap)
+					{
+						ExitShort("TP2_VWAP_Short", "");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+					}
+				}
+				else
+				{
+					// IB Sweep Macro Reversal: Holds runner through VWAP Midline to Opposite Band (-2.0σ) or EOD!
+					if (lowerBand2 < entry && Low[0] <= lowerBand2)
+					{
+						ExitShort("TP2_OppBand_Short", "");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+					}
 				}
 			}
 			else if (Position.MarketPosition == MarketPosition.Long)
@@ -641,12 +676,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 					}
 				}
 
-				// 2. TP1: Scale out 1 contract at VWAP -1.0σ (must be in profit by at least 1.5 pts)
-				if (!tp1Filled && lowerBand1 >= (entry + 1.5))
+				// 2. TP1: Scale out 1 contract at VWAP -1.0σ (for standard trades)
+				if (!tp1Filled && !isIbSweepTrade && lowerBand1 >= (entry + 1.5))
 				{
 					if (High[0] >= lowerBand1)
 					{
-						ExitLong(1, "TP1_Dev1_Long", "Long_Absorption");
+						ExitLong(1, "TP1_Dev1_Long", "");
 						tp1Filled        = true;
 						isBreakevenArmed = true;
 						BroadcastSignal("CLOSE_HALF", 0, 0);
@@ -654,20 +689,35 @@ namespace NinjaTrader.NinjaScript.Strategies
 				}
 
 				// 3. Breakeven Guard Exit (Prevents winners from turning into losses)
-				if (isBreakevenArmed && Low[0] <= entry)
+				// Ratchet stop to Entry + 1 tick ($25 guaranteed profit/scratch)
+				if (isBreakevenArmed && Low[0] <= (entry + (1 * TickSize)))
 				{
-					ExitLong("BE_Long", "Long_Absorption");
+					ExitLong("BE_Long", "");
 					lastExitBar = CurrentBar;
 					BroadcastSignal("CLOSE_ALL", 0, 0);
 					return;
 				}
 
-				// 4. TP2: Mean Reversion to VWAP Midline
-				if (currentVwap > entry && High[0] >= currentVwap)
+				// 4. TP2: Profit Harvesting
+				if (!isIbSweepTrade)
 				{
-					ExitLong("TP2_VWAP_Long", "Long_Absorption");
-					lastExitBar = CurrentBar;
-					BroadcastSignal("CLOSE_ALL", 0, 0);
+					// Standard Mean Reversion target: VWAP Midline
+					if (currentVwap > entry && High[0] >= currentVwap)
+					{
+						ExitLong("TP2_VWAP_Long", "");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+					}
+				}
+				else
+				{
+					// IB Sweep Macro Reversal: Holds runner through VWAP Midline to Opposite Band (+2.0σ) or EOD!
+					if (upperBand2 > entry && High[0] >= upperBand2)
+					{
+						ExitLong("TP2_OppBand_Long", "");
+						lastExitBar = CurrentBar;
+						BroadcastSignal("CLOSE_ALL", 0, 0);
+					}
 				}
 			}
 		}
@@ -681,6 +731,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 					lastExitBar      = CurrentBar;
 					tp1Filled        = false;
 					isBreakevenArmed = false;
+					currentEntryTag  = "";
 					BroadcastSignal("CLOSE_ALL", 0, 0);
 				}
 			}
