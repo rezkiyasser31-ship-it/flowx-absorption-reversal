@@ -143,7 +143,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 				TrappedBarsLookback					= 2;    // Reaction window for absorption
 				OpeningBufferMinutes				= 30;   // 30-min buffer (captures 10:00 AM NY reversal)
 				EnableTrendFilter					= true; // Protect against fading strong trend days
-				TrendSlopeThreshold					= 0.45; // 0.45 pt normalized VWAP slope indicates trend
+				TrendSlopeThreshold					= 1.0;  // 1.0 pt VWAP slope indicates trend
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
@@ -443,21 +443,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 						return;
 				}
 
-				// VWAP Trend Regime Classification (Volatility-Normalized Velocity)
+				// VWAP Trend Regime Classification
 				bool isBullTrend = false;
 				bool isBearTrend = false;
 				if (EnableTrendFilter && CurrentBar >= SlopeLookbackBars && Values[0][SlopeLookbackBars] > 0)
 				{
 					double vwapSlope = currentVwap - Values[0][SlopeLookbackBars];
-					double dynamicLimit = TrendSlopeThreshold;
-					if (atrIndicator != null && CurrentBar >= 14 && atrIndicator[0] > 0)
-					{
-						dynamicLimit = Math.Min(TrendSlopeThreshold, atrIndicator[0] * 0.25);
-					}
-
-					if (vwapSlope >= dynamicLimit)
+					if (vwapSlope >= TrendSlopeThreshold)
 						isBullTrend = true;
-					else if (vwapSlope <= -dynamicLimit)
+					else if (vwapSlope <= -TrendSlopeThreshold)
 						isBearTrend = true;
 				}
 
@@ -503,11 +497,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// Initial Balance Confluence: Sweep of 60-min opening high
 				bool ibSweepShort = !RequireIbSweep || (isIbEstablished && High[0] >= (ibHigh - (2 * TickSize)));
-
-				// Protect against fading an active Initial Balance bull breakout in a bull trend
-				if (isIbEstablished && High[0] > ibHigh && Close[0] > ibHigh && isBullTrend)
-					return;
-
 				if (testedUpperBand && buyersTrapped && hasUpperWick && isBearishBar && cvdExhaustedShort && structuralResistance && ibSweepShort)
 				{
 					double entryPrice = Close[0];
@@ -566,10 +555,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// Initial Balance Confluence: Sweep of 60-min opening low
 				bool ibSweepLong = !RequireIbSweep || (isIbEstablished && Low[0] <= (ibLow + (2 * TickSize)));
-
-				// Protect against fading an active Initial Balance bear breakdown in a bear trend
-				if (isIbEstablished && Low[0] < ibLow && Close[0] < ibLow && isBearTrend)
-					return;
 
 				if (testedLowerBand && sellersTrapped && hasLowerWick && isBullishBar && cvdExhaustedLong && structuralSupport && ibSweepLong)
 				{
