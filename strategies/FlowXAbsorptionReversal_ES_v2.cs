@@ -139,7 +139,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 				// 5. Microstructure & Market Structure Filters
 				CooldownBars						= 3;    // Cooldown after an exit
-				MinWickPoints						= 0.50; // Minimum rejection wick (2 ticks = 0.50 pts)
+				MinWickPoints						= 0.75; // Minimum rejection wick (3 ticks = 0.75 pts)
 				TrappedBarsLookback					= 2;    // Reaction window for absorption
 				OpeningBufferMinutes				= 30;   // 30-min buffer (captures 10:00 AM NY reversal)
 				EnableTrendFilter					= true; // Protect against fading strong trend days
@@ -147,12 +147,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 				SlopeLookbackBars					= 20;   // 20-bar lookback for VWAP slope
 				RequirePriorDayConfluence			= false;// Optional horizontal profile confluence
 
-				// 6. Intraday Institutional Window (10:00 - 15:30 EST / 16:30 - 22:00 chart time)
+				// 6. Intraday Institutional Window (10:00 - 14:00 EST / 16:30 - 20:30 chart time)
 				UseTimeFilter						= true;
 				TradeStartHour						= 16;
 				TradeStartMinute					= 30;
-				TradeEndHour						= 22;
-				TradeEndMinute						= 0;
+				TradeEndHour						= 20;
+				TradeEndMinute						= 30;
 
 				// 7. MT5 Bridge & Alerts
 				EnableBridge						= true;
@@ -458,6 +458,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 				diagBarsInTradingHours++;
 				CheckForESEntries(isBullTrend, isBearTrend, effectiveSweepThreshold);
 			}
+
+			if (Bars != null && CurrentBar >= Bars.Count - 2)
+			{
+				DumpBacktestResults();
+			}
 		}
 
 		private void CheckForESEntries(bool isBullTrend, bool isBearTrend, double effectiveSweepThreshold)
@@ -733,18 +738,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 				string jsonPath = System.IO.Path.Combine(dir, "latest_backtest_v2.json");
 				string txtPath  = System.IO.Path.Combine(dir, "latest_backtest_summary_v2.txt");
 
-				if (SystemPerformance == null || SystemPerformance.AllTrades == null || Bars == null || Bars.Count == 0)
-					return;
+				int totalTrades = (SystemPerformance != null && SystemPerformance.AllTrades != null) ? SystemPerformance.AllTrades.Count : 0;
+				int barsLoaded  = (Bars != null) ? Bars.Count : -1;
 
-				int totalTrades = SystemPerformance.AllTrades.Count;
 				if (totalTrades == 0)
 				{
 					var sb0 = new System.Text.StringBuilder();
 					sb0.AppendLine("==========================================================================================================");
-					sb0.AppendLine(string.Format("COMPLETED on {0} at {1:yyyy-MM-dd HH:mm:ss}: 0 Trades Executed (Total Bars Loaded: {2}).", Instrument != null ? Instrument.FullName : "ES", DateTime.Now, Bars != null ? Bars.Count : 0));
+					sb0.AppendLine(string.Format("FLOWX ES REPORT: {0} | Completed: {1:yyyy-MM-dd HH:mm:ss} | 0 Trades Executed", Instrument != null ? Instrument.FullName : "ES", DateTime.Now));
 					sb0.AppendLine("==========================================================================================================");
 					sb0.AppendLine("DIAGNOSTIC FUNNEL ANALYSIS:");
-					sb0.AppendLine(string.Format("  Total Bars Evaluated:       {0}", diagBarsEvaluated));
+					sb0.AppendLine(string.Format("  Total Bars Loaded:          {0}", barsLoaded));
+					sb0.AppendLine(string.Format("  Bars Evaluated:             {0}", diagBarsEvaluated));
 					sb0.AppendLine(string.Format("  Bars in Trading Hours:      {0}", diagBarsInTradingHours));
 					sb0.AppendLine(string.Format("  Max Single Tick Volume:     {0:F0}", diagMaxTickVolume));
 					sb0.AppendLine(string.Format("  Max Contiguous Sweep Vol:   {0:F0}", diagMaxSweepVolume));
@@ -762,6 +767,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 					sb0.AppendLine(string.Format("  Long Wick (Pass):           {0}", diagLongWickPass));
 					sb0.AppendLine(string.Format("  Strict Delta Reversal:      {0}", StrictDeltaReversal));
 					sb0.AppendLine(string.Format("  Prior Day Confluence:       {0}", RequirePriorDayConfluence));
+					sb0.AppendLine(string.Format("  Require IB Sweep:           {0}", RequireIbSweep));
+					sb0.AppendLine(string.Format("  Trading Window:             {0:D2}:{1:D2} - {2:D2}:{3:D2}", TradeStartHour, TradeStartMinute, TradeEndHour, TradeEndMinute));
 					sb0.AppendLine("==========================================================================================================");
 					System.IO.File.WriteAllText(txtPath, sb0.ToString());
 					return;
